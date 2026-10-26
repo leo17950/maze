@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maze</title>
+<style>
+  :root { --bg:#e8eef2; --ink:#16324a; --wall:#16324a; --floor:#f7fafc; --player:#f2a900; --goal:#1f9d6b; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0f1a24; --ink:#d8e4ee; --wall:#6f9cc0; --floor:#16232f; --player:#ffc233; --goal:#3ccf91; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center;
+         gap:14px; padding:16px; background:var(--bg); color:var(--ink); font-family:system-ui,sans-serif; }
+  h1 { margin:0; font-size:1.6rem; }
+  #info { display:flex; gap:16px; align-items:center; font-size:1rem; }
+  canvas { width:min(92vw, 520px); height:auto; aspect-ratio:1; border-radius:6px; touch-action:none; }
+  button { font:inherit; padding:8px 14px; border:2px solid var(--ink); border-radius:6px; background:transparent; color:var(--ink); cursor:pointer; }
+  button:hover { background:var(--ink); color:var(--bg); }
+  button:focus-visible { outline:3px solid var(--player); outline-offset:2px; }
+  #msg { min-height:1.4em; font-weight:600; }
+</style>
+</head>
+<body>
+  <h1>Maze</h1>
+  <div id="info">
+    <span>Moves: <b id="moves">0</b></span>
+    <select id="size" aria-label="Maze size">
+      <option value="8">Small</option>
+      <option value="12" selected>Medium</option>
+      <option value="18">Large</option>
+    </select>
+    <button id="new">New maze</button>
+  </div>
+  <canvas id="c" width="520" height="520" tabindex="0" aria-label="Maze board"></canvas>
+  <div id="msg">Reach the green square. Use arrow keys, WASD, or swipe.</div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const movesEl = document.getElementById('moves');
+const msgEl = document.getElementById('msg');
+const sizeEl = document.getElementById('size');
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+let N, cells, px, py, moves, won;
+
+// Each cell has walls: [top, right, bottom, left]
+function generate() {
+  N = parseInt(sizeEl.value, 10);
+  cells = Array.from({ length: N * N }, () => [true, true, true, true]);
+  const seen = new Set([0]);
+  const stack = [0];
+  const dirs = [[0,-1,0,2],[1,0,1,3],[0,1,2,0],[-1,0,3,1]]; // dx, dy, wall, opposite wall
+  while (stack.length) {
+    const i = stack[stack.length - 1];
+    const x = i % N, y = Math.floor(i / N);
+    const opts = dirs.filter(([dx, dy]) => {
+      const nx = x + dx, ny = y + dy;
+      return nx >= 0 && ny >= 0 && nx < N && ny < N && !seen.has(ny * N + nx);
+    });
+    if (!opts.length) { stack.pop(); continue; }
+    const [dx, dy, w, o] = opts[Math.floor(Math.random() * opts.length)];
+    const j = (y + dy) * N + (x + dx);
+    cells[i][w] = false;
+    cells[j][o] = false;
+    seen.add(j);
+    stack.push(j);
+  }
+  px = 0; py = 0; moves = 0; won = false;
+  movesEl.textContent = 0;
+  msgEl.textContent = 'Reach the green square. Use arrow keys, WASD, or swipe.';
+  draw();
+}
+
+function draw() {
+  const s = canvas.width / N;
+  ctx.fillStyle = css('--floor');
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.fillStyle = css('--goal');
+  ctx.fillRect((N - 1) * s + s * 0.2, (N - 1) * s + s * 0.2, s * 0.6, s * 0.6);
+
+  ctx.strokeStyle = css('--wall');
+  ctx.lineWidth = Math.max(2, s * 0.08);
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const [t, r, b, l] = cells[y * N + x];
+    const x0 = x * s, y0 = y * s, x1 = x0 + s, y1 = y0 + s;
+    if (t) { ctx.moveTo(x0, y0); ctx.lineTo(x1, y0); }
+    if (r) { ctx.moveTo(x1, y0); ctx.lineTo(x1, y1); }
+    if (b) { ctx.moveTo(x0, y1); ctx.lineTo(x1, y1); }
+    if (l) { ctx.moveTo(x0, y0); ctx.lineTo(x0, y1); }
+  }
+  ctx.stroke();
+
+  ctx.fillStyle = css('--player');
+  ctx.beginPath();
+  ctx.arc(px * s + s / 2, py * s + s / 2, s * 0.28, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function move(dir) { // 0 up, 1 right, 2 down, 3 left
+  if (won || cells[py * N + px][dir]) return;
+  px += [0, 1, 0, -1][dir];
+  py += [-1, 0, 1, 0][dir];
+  movesEl.textContent = ++moves;
+  if (px === N - 1 && py === N - 1) {
+    won = true;
+    msgEl.textContent = `Solved in ${moves} moves! Press "New maze" to play again.`;
+  }
+  draw();
+}
+
+const keys = { ArrowUp:0, w:0, ArrowRight:1, d:1, ArrowDown:2, s:2, ArrowLeft:3, a:3 };
+document.addEventListener('keydown', e => {
+  const d = keys[e.key];
+  if (d === undefined) return;
+  e.preventDefault();
+  move(d);
+});
+
+// Swipe support
+let sx, sy;
+canvas.addEventListener('pointerdown', e => { sx = e.clientX; sy = e.clientY; });
+canvas.addEventListener('pointerup', e => {
+  if (sx == null) return;
+  const dx = e.clientX - sx, dy = e.clientY - sy;
+  sx = null;
+  if (Math.max(Math.abs(dx), Math.abs(dy)) < 20) return;
+  move(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 1 : 3) : (dy > 0 ? 2 : 0));
+});
+
+document.getElementById('new').addEventListener('click', generate);
+sizeEl.addEventListener('change', generate);
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', draw);
+generate();
+</script>
+</body>
+</html>
